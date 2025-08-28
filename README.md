@@ -1,8 +1,6 @@
 # AWS-Cloud-Expired-IAM-Access-Keys-Detector
 
-# IAM Access Key Expiry Monitor (Generic, GovCloud-Compatible)
-
-## **Use Case / Purpose**
+## IAM Access Key Expiry Monitor (Generic, GovCloud-Compatible) **Use Case / Purpose**
 
 AWS IAM access keys are **sensitive credentials** that, if compromised, can lead to unauthorized access to your account. Security best practices recommend **rotating access keys regularly** and avoiding keys that are older than 180 days.  
 
