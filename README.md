@@ -73,7 +73,6 @@ This template demonstrates the **power of IaC**, saving you time, reducing mista
   ]
 }
 
-```json
 
 
 ### **Step 3: Create Lambda Function**
