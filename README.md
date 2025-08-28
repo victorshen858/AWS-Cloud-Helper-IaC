@@ -61,7 +61,6 @@ This template demonstrates the **power of IaC**, saving you time, reducing mista
 3. Add another **trusted entity**: EventBridge Scheduler (if using GovCloud, ensure the Scheduler principal is correct).  
 4. Attach policy with the following permissions:
 
-```json
 {
   "Version": "2012-10-17",
   "Statement": [
