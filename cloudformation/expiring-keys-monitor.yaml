@@ -1,0 +1,181 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Generic IAM Access Key Expiry Monitor - Detects keys older than specified threshold, sends SNS notifications, GovCloud-compatible
+
+Parameters:
+  AccountName:
+    Type: String
+    Default: "your-account-name"
+    Description: Friendly account name for Lambda reporting
+  AccountID:
+    Type: String
+    Default: "123456789012"
+    Description: AWS account ID
+  NotificationEmail:
+    Type: String
+    Default: "your-email@example.com"
+    Description: Email to receive notifications
+  ExpiryDays:
+    Type: Number
+    Default: 150
+    Description: Threshold in days for reporting expired IAM keys
+
+Resources:
+
+  # SNS Topic
+  AccessKeysSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: IAMKeyAlerts
+  AccessKeysSNSTopicSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref AccessKeysSNSTopic
+      Protocol: email
+      Endpoint: !Ref NotificationEmail
+
+  # IAM Role for Lambda
+  ExpiredKeysRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: iam-expired-keys-monitor
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+                - scheduler.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: iam-expired-keys-policy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - iam:ListUsers
+                  - iam:ListAccessKeys
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricData
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: !Ref AccessKeysSNSTopic
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - organizations:DescribeAccount
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - kms:Decrypt
+                Resource: "*"
+
+  # Lambda Function
+  ExpiredKeysLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: iam-check-expired-access-keys
+      Runtime: python3.13
+      Handler: index.lambda_handler
+      Role: !GetAtt ExpiredKeysRole.Arn
+      MemorySize: 8000
+      Timeout: 900
+      EphemeralStorage:
+        Size: 1800
+      Environment:
+        Variables:
+          ACCOUNT_NAME: !Ref AccountName
+          ACCOUNT_ID: !Ref AccountID
+          SNS_TOPIC_ARN: !Ref AccessKeysSNSTopic
+          EXPIRY_DAYS: !Ref ExpiryDays
+      Code:
+        ZipFile: |
+          import boto3
+          from datetime import datetime, timezone
+          import os
+
+          ACCOUNT_NAME = os.environ["ACCOUNT_NAME"]
+          ACCOUNT_ID = os.environ["ACCOUNT_ID"]
+          SNS_TOPIC_ARN = os.environ["SNS_TOPIC_ARN"]
+          EXPIRY_DAYS = int(os.environ.get("EXPIRY_DAYS"))
+
+          iam = boto3.client("iam")
+          sns = boto3.client("sns")
+          sts = boto3.client("sts")
+
+          def lambda_handler(event, context):
+              now = datetime.now(timezone.utc)
+              expired_keys = []
+
+              users = iam.list_users()["Users"]
+              for user in users:
+                  user_name = user["UserName"]
+                  keys = iam.list_access_keys(UserName=user_name)["AccessKeyMetadata"]
+                  for key in keys:
+                      key_id = key["AccessKeyId"]
+                      status = key["Status"]
+                      create_date = key["CreateDate"]
+                      age_days = (now - create_date).days
+                      if age_days >= EXPIRY_DAYS:
+                          expired_keys.append({
+                              "UserName": user_name,
+                              "AccessKeyId": key_id,
+                              "Status": status,
+                              "CreateDate": create_date.strftime("%Y-%m-%d"),
+                              "AgeDays": age_days
+                          })
+
+              if expired_keys:
+                  report_lines = [
+                      f"User: {k['UserName']} | KeyId: {k['AccessKeyId']} | Status: {k['Status']} | Created: {k['CreateDate']} | Age: {k['AgeDays']} days"
+                      for k in expired_keys
+                  ]
+                  report_content = "\n".join(report_lines)
+              else:
+                  report_content = "No expired or expiring keys found."
+
+              email_subject = f"IAM Access Key Expiry Report - Account {ACCOUNT_ID}"
+              email_body = (
+                  "AWS Account ID: " + ACCOUNT_ID + "\n"
+                  "AWS Account Name: " + ACCOUNT_NAME + "\n\n"
+                  "The following IAM users have expired or expiring access keys (≥" + str(EXPIRY_DAYS) + " days old):\n\n"
+                  + report_content
+              )
+
+              sns.publish(
+                  TopicArn=SNS_TOPIC_ARN,
+                  Subject=email_subject,
+                  Message=email_body
+              )
+
+              return {
+                  "statusCode": 200,
+                  "expired_keys_count": len(expired_keys),
+                  "expired_keys": expired_keys
+              }
+
+  # EventBridge Scheduler
+  ExpiredKeysSchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: IAMAccessKeysMonitorDaily
+      Description: Runs Lambda daily to check IAM key ages
+      FlexibleTimeWindow:
+        Mode: OFF
+      ScheduleExpression: rate(1 day)
+      ScheduleExpressionTimezone: America/New_York
+      Target:
+        Arn: !GetAtt ExpiredKeysLambda.Arn
+        RoleArn: !GetAtt ExpiredKeysRole.Arn
+        Input: "{}"
