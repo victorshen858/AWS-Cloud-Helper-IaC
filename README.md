@@ -72,6 +72,8 @@ This template demonstrates the **power of IaC**, saving you time, reducing mista
     {"Effect": "Allow", "Action": ["organizations:DescribeAccount"], "Resource": "*"}
   ]
 }
+
+```json
 ### **Step 3: Create Lambda Function**
 
 1. Open **AWS Lambda → Create function → Author from scratch**.  
