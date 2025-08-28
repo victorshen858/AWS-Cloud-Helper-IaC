@@ -4,16 +4,50 @@
 
 AWS IAM access keys are **sensitive credentials** that, if compromised, can lead to unauthorized access to your account. Security best practices recommend **rotating access keys regularly** and avoiding keys that are older than 180 days.  
 
-This project **automates monitoring of IAM access keys**:
+## Features
 
-- Detects keys that are **older than 150 days** (giving you a buffer before the 180-day automatic deletion).  
-- Sends **notifications via SNS** to administrators before keys expire.  
-- Enables proactive key rotation, reducing the risk of **stale or abandoned keys**.  
-- Helps enforce organizational security policies with minimal manual effort.  
-
-By using this system, you can **proactively rotate keys**, prevent accidental use of stale credentials, and stay aligned with **AWS security best practices**.  
+- **Automated Lambda Function:** Monitors IAM access keys and identifies expired or near-expiry keys.
+- **SNS Notifications:** Sends alerts to subscribed emails when keys are nearing expiration.
+- **GovCloud Compatible:** Works in both standard AWS regions and AWS GovCloud (US) regions.
+- **CloudFormation Support:** Infrastructure-as-Code (IaC) template included for fast, repeatable deployments.
+- **Configurable:** Threshold days (`EXPIRY_DAYS`), SNS topic, and other parameters can be customized via environment variables or configuration file.
 
 ---
+
+## Repository Contents
+
+| File | Description |
+|------|-------------|
+| `expiring-keys-monitor.yaml` | CloudFormation template to deploy Lambda, IAM Role, EventBridge Scheduler, and SNS Topic |
+| `config.json` | Optional configuration file for custom parameters (EXPIRY_DAYS, SNS_TOPIC_ARN, ACCOUNT_NAME, ACCOUNT_ID) |
+| `lambda_only/lambda_function.py` | Inline Lambda Python code for IAM access key monitoring |
+| `scripts/deploy_stack.sh` | Optional shell script to deploy CloudFormation stack via AWS CLI |
+| `aws-expiring-iam-access-keys-monitor.zip` | Lambda deployment package |
+| `README.md` | This documentation |
+
+---
+
+## How It Works
+
+1. **Lambda Execution:** Runs daily (via EventBridge Scheduler) and lists all IAM users and their active access keys.
+2. **Expiration Check:** Compares key creation date to threshold (`EXPIRY_DAYS`, default 150).
+3. **Alerting:** Publishes a notification to the configured SNS topic for keys older than threshold.
+4. **Logging:** Logs all activity to CloudWatch for auditing and troubleshooting.
+
+This workflow ensures administrators can act before keys reach the AWS 180-day rotation recommendation.
+
+---
+
+## Deployment
+
+### CloudFormation (Recommended)
+
+```bash
+aws cloudformation deploy \
+  --template-file expiring-keys-monitor.yaml \
+  --stack-name iam-expired-keys-monitor \
+  --capabilities CAPABILITY_NAMED_IAM
+```
 
 ## **Why Use CloudFormation (IaC) for IAM Key Monitoring?**
 
