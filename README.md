@@ -72,3 +72,57 @@ This template demonstrates the **power of IaC**, saving you time, reducing mista
     {"Effect": "Allow", "Action": ["organizations:DescribeAccount"], "Resource": "*"}
   ]
 }
+### **Step 3: Create Lambda Function**
+
+1. Open **AWS Lambda → Create function → Author from scratch**.  
+2. Name: `iam-check-expired-access-keys`.  
+3. Runtime: **Python 3.13**.  
+4. Permissions: Choose **Use an existing role** → `iam-expired-keys-monitor`.  
+5. Configure **Memory & Timeout**:
+   - Memory: `8 GB` (8000 MB)  
+   - Timeout: `15 min` (900 seconds)  
+   - Ephemeral storage: `1.8 GB`  
+6. Set **Environment Variables**:
+   ```text
+   ACCOUNT_NAME = your account name
+   ACCOUNT_ID = your AWS account ID
+   SNS_TOPIC_ARN = SNS topic ARN
+   EXPIRY_DAYS = 150
+### **Step 4: Test Lambda**
+
+1. Open **Test → Configure test event** → name: `default`, payload: `{}`.  
+2. Run **Test**.  
+3. Check **CloudWatch logs** for output: `Using EXPIRY_DAYS = 150` and expired keys.  
+4. Verify **SNS email** received.
+
+---
+
+### **Step 5: Create EventBridge Scheduler**
+
+1. Open **AWS Console → EventBridge → Scheduler → Create schedule**.  
+2. Name: `IAMAccessKeysMonitorDaily`.  
+3. Frequency: **Rate expression** → `rate(1 day)`.  
+4. Timezone: `America/New_York`.  
+5. FlexibleTimeWindow: **OFF** (avoids scheduling confusion).  
+6. Target: Lambda function `iam-check-expired-access-keys`.  
+7. Role: Choose **existing role** → `iam-expired-keys-monitor`.  
+8. Input: `{}` (default).
+
+---
+
+### **Step 6: Verify Everything Works**
+
+- Lambda logs in **CloudWatch**.  
+- SNS sends alerts for expired keys.  
+- EventBridge Scheduler runs daily automatically.
+
+---
+
+## **Lessons Learned / Common Pitfalls**
+
+1. **FlexibleTimeWindow “OFF”** is critical — otherwise Scheduler may delay invocation.  
+2. **IAM Role trust**: Lambda + Scheduler must be included. Missing either → invocation fails.  
+3. **Environment variables** must match deployed values. `EXPIRY_DAYS` mismatch is a common source of false alerts.  
+4. **GovCloud KMS**: Ensure `kms:Decrypt` is granted.  
+5. **Lambda memory/timeout**: Large accounts require 8 GB and 15 min timeout for pagination.  
+6. **SNS Subscription confirmation**: Forgetting this prevents email delivery.
